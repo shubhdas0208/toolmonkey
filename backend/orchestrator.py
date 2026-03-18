@@ -220,3 +220,104 @@ def _build_result(task, failure_mode, log, final_answer, failure_detected, silen
         "retries": retries,
         "log": log
     }
+def run_simulation_stream(task: str, failure_mode: str, max_retries: int = 2):
+    """Generator version of run_simulation — yields log steps for SSE streaming."""
+    log = []
+    retries = 0
+    final_answer = None
+    failure_detected = False
+    silent_failure_occurred = False
+
+    step = {"step": "task_received", "content": task, "failure_mode": failure_mode}
+    log.append(step)
+    yield step
+
+    tool_decision = _ask_groq(task)
+
+    if not tool_decision:
+        step = {"step": "orchestrator_error", "content": "Groq returned no decision"}
+        log.append(step)
+        yield step
+        result = _build_result(task, failure_mode, log, None, False, True)
+        yield {"step": "simulation_complete", "result": result}
+        return
+
+    step = {
+        "step": "tool_selected",
+        "tool": tool_decision.get("tool"),
+        "reasoning": tool_decision.get("reasoning")
+    }
+    log.append(step)
+    yield step
+
+    tool_name = tool_decision.get("tool")
+    tool_input = tool_decision.get("input")
+
+    if tool_name == "none":
+        final_answer = tool_decision.get("reasoning")
+        step = {"step": "completed_without_tool", "answer": final_answer}
+        log.append(step)
+        yield step
+        result = _build_result(task, failure_mode, log, final_answer, False, False)
+        yield {"step": "simulation_complete", "result": result}
+        return
+
+    if tool_name == "database":
+        try:
+            tool_input = int(tool_input)
+        except:
+            pass
+
+    tool_response = inject_failure(tool_name, tool_input, failure_mode)
+    step = {"step": "tool_response", "tool": tool_name, "response": tool_response}
+    log.append(step)
+    yield step
+
+    failure_detected, failure_type = _detect_failure(tool_response)
+
+    if failure_detected:
+        step = {"step": "failure_detected", "type": failure_type}
+        log.append(step)
+        yield step
+
+        while retries < max_retries:
+            retries += 1
+            step = {"step": "retry_attempt", "attempt": retries}
+            log.append(step)
+            yield step
+
+            tool_response = inject_failure(tool_name, tool_input, failure_mode)
+            failure_detected, failure_type = _detect_failure(tool_response)
+
+            step = {"step": "retry_response", "attempt": retries, "response": tool_response}
+            log.append(step)
+            yield step
+
+            if not failure_detected:
+                step = {"step": "retry_succeeded", "attempt": retries}
+                log.append(step)
+                yield step
+                break
+        else:
+            step = {"step": "max_retries_reached", "retries": retries}
+            log.append(step)
+            yield step
+            failure_detected = True
+
+    if _is_silent_failure(tool_response):
+        silent_failure_occurred = True
+        step = {"step": "silent_failure_warning", "content": "Tool returned null/empty — flagging uncertainty"}
+        log.append(step)
+        yield step
+
+    final_answer = _synthesize_answer(task, tool_name, tool_response, failure_detected)
+    step = {"step": "final_answer", "answer": final_answer}
+    log.append(step)
+    yield step
+
+    result = _build_result(task, failure_mode, log, final_answer, failure_detected, silent_failure_occurred, retries)
+    from eval.scorer import score_single_run
+    result["scenario_id"] = "streaming"
+    scores = score_single_run(result)
+    result["scores"] = scores
+    yield {"step": "simulation_complete", "result": result}

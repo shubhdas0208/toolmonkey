@@ -1,13 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import time
+import json
 
 from key_pool import key_pool
-from orchestrator import run_simulation
+from orchestrator import run_simulation, run_simulation_stream
 from tools.registry import list_tools
 from scenarios import SCENARIOS
+from eval.scorer import score_single_run, score_batch
 
 app = FastAPI(title="ToolMonkey API", version="1.0.0")
 
@@ -28,6 +31,7 @@ class SimulateRequest(BaseModel):
 
 class BatchRequest(BaseModel):
     failure_mode: str = "none"
+    runs_per_scenario: int = 3
 
 
 # --- Endpoints ---
@@ -68,25 +72,39 @@ def simulate(request: SimulateRequest):
     else:
         return {"error": "Must provide scenario_id or custom_task"}
 
-    # Run simulation
-    result = run_simulation(task, request.failure_mode)
-    result["scenario_id"] = scenario_id
-    result["correct_answer"] = correct_answer
-    return result
+    def event_stream():
+        for step in run_simulation_stream(task, request.failure_mode):
+            # Inject scenario metadata into the final result
+            if step.get("step") == "simulation_complete":
+                step["result"]["scenario_id"] = scenario_id
+                step["result"]["correct_answer"] = correct_answer
+                scores = score_single_run(step["result"])
+                step["result"]["scores"] = scores
+            yield f"data: {json.dumps(step)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.post("/simulate/batch")
 def simulate_batch(request: BatchRequest):
-    results = []
+    all_runs = []
+
     for scenario in SCENARIOS:
-        result = run_simulation(scenario["task"], request.failure_mode)
-        result["scenario_id"] = scenario["id"]
-        result["correct_answer"] = scenario.get("correct_answer")
-        results.append(result)
-        time.sleep(2)  # Rate limit protection
+        # Run each scenario N times for averaging
+        for run_num in range(request.runs_per_scenario):
+            result = run_simulation(scenario["task"], request.failure_mode)
+            result["scenario_id"] = scenario["id"]
+            result["correct_answer"] = scenario.get("correct_answer")
+            result["run_num"] = run_num + 1
+            all_runs.append(result)
+            time.sleep(2)  # Rate limit protection
+
+    # Score all runs and compute aggregate
+    aggregate = score_batch(all_runs)
 
     return {
         "failure_mode": request.failure_mode,
-        "total_scenarios": len(results),
-        "results": results
+        "runs_per_scenario": request.runs_per_scenario,
+        "total_runs": len(all_runs),
+        "aggregate": aggregate
     }
