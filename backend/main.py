@@ -5,14 +5,18 @@ from pydantic import BaseModel
 from typing import Optional
 import time
 import json
+import uuid
 
 from key_pool import key_pool
-from orchestrator import run_simulation, run_simulation_stream
-from tools.registry import list_tools
 from scenarios import SCENARIOS
-from eval.scorer import score_single_run, score_batch
+from schemas.request_schema import build_request
+from schemas.response_schema import NormalizedResponse
+from failure_engine_v2 import inject_failure as inject_failure_v2
+from adapters.registry import get_adapter, validate_key as registry_validate_key, get_providers_config
+from eval.scorer_v2 import score_single_run_v2, score_batch_v2
+from comparison.engine import run_comparison
 
-app = FastAPI(title="ToolMonkey API", version="1.0.0")
+app = FastAPI(title="ToolMonkey API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,107 +28,11 @@ app.add_middleware(
 
 # --- Request Models ---
 
-class SimulateRequest(BaseModel):
-    scenario_id: Optional[str] = None
-    failure_mode: str = "none"
-    custom_task: Optional[str] = None
-
-class BatchRequest(BaseModel):
-    failure_mode: str = "none"
-    runs_per_scenario: int = 3
-
-
-# --- Endpoints ---
-
-@app.api_route("/health", methods=["GET", "HEAD"])
-def health():
-    return {
-        "status": "ok",
-        "timestamp": time.time(),
-        "key_pool": key_pool.get_status()
-    }
-
-
-@app.get("/tools")
-def get_tools():
-    return {"tools": list_tools()}
-
-
-@app.get("/scenarios")
-def get_scenarios():
-    return {"scenarios": SCENARIOS}
-
-
-@app.post("/simulate")
-def simulate(request: SimulateRequest):
-    # Determine task
-    if request.custom_task:
-        task = request.custom_task
-        scenario_id = "custom"
-        correct_answer = None
-    elif request.scenario_id:
-        scenario = next((s for s in SCENARIOS if s["id"] == request.scenario_id), None)
-        if not scenario:
-            return {"error": f"Scenario {request.scenario_id} not found"}
-        task = scenario["task"]
-        scenario_id = request.scenario_id
-        correct_answer = scenario.get("correct_answer")
-    else:
-        return {"error": "Must provide scenario_id or custom_task"}
-
-    def event_stream():
-        for step in run_simulation_stream(task, request.failure_mode):
-            # Inject scenario metadata into the final result
-            if step.get("step") == "simulation_complete":
-                step["result"]["scenario_id"] = scenario_id
-                step["result"]["correct_answer"] = correct_answer
-                scores = score_single_run(step["result"])
-                step["result"]["scores"] = scores
-            yield f"data: {json.dumps(step)}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-
-@app.post("/simulate/batch")
-def simulate_batch(request: BatchRequest):
-    all_runs = []
-
-    for scenario in SCENARIOS:
-        # Run each scenario N times for averaging
-        for run_num in range(request.runs_per_scenario):
-            result = run_simulation(scenario["task"], request.failure_mode)
-            result["scenario_id"] = scenario["id"]
-            result["correct_answer"] = scenario.get("correct_answer")
-            result["run_num"] = run_num + 1
-            all_runs.append(result)
-            time.sleep(2)  # Rate limit protection
-
-    # Score all runs and compute aggregate
-    aggregate = score_batch(all_runs)
-
-    return {
-        "failure_mode": request.failure_mode,
-        "runs_per_scenario": request.runs_per_scenario,
-        "total_runs": len(all_runs),
-        "aggregate": aggregate
-    }
-# --- V2 Imports ---
-
-from schemas.request_schema import build_request
-from schemas.response_schema import NormalizedResponse
-from failure_engine_v2 import inject_failure as inject_failure_v2
-from adapters.groq_adapter import GroqAdapter, validate_key
-from eval.scorer_v2 import score_single_run_v2, score_batch_v2
-from comparison.engine import run_comparison
-import uuid
-
-
-# --- V2 Request Models ---
-
 class ModelConfig(BaseModel):
-    endpoint_url: str
+    provider: str
     api_key: str
     model_name: str
+    endpoint_url: str = ""
 
 class V2SimulateRequest(BaseModel):
     model: ModelConfig
@@ -147,11 +55,32 @@ class V2CompareRequest(BaseModel):
     runs_per_mode: int = 3
 
 
+# --- Core Endpoints ---
+
+@app.api_route("/health", methods=["GET", "HEAD"])
+def health():
+    return {
+        "status": "ok",
+        "version": "2.0.0",
+        "timestamp": time.time(),
+        "key_pool": key_pool.get_status()
+    }
+
+@app.get("/scenarios")
+def get_scenarios():
+    return {"scenarios": SCENARIOS}
+
+
 # --- V2 Endpoints ---
+
+@app.get("/v2/providers")
+def v2_get_providers():
+    return get_providers_config()
+
 
 @app.post("/v2/validate-key")
 def v2_validate_key(config: ModelConfig):
-    valid, error = validate_key(config.api_key)
+    valid, error = registry_validate_key(config.provider, config.api_key)
     return {"valid": valid, "error": error, "model_name": config.model_name}
 
 
@@ -191,7 +120,7 @@ def v2_simulate(request: V2SimulateRequest):
 
         yield f"data: {json.dumps({'step': 'request_built', 'session_id': session_id[:8] + '...'})}\n\n"
 
-        adapter = GroqAdapter()
+        adapter = get_adapter(request.model.provider)
         norm_resp, http_status, error = adapter.send(norm_req, request.model.api_key, request.model.model_name)
 
         if error:
@@ -235,7 +164,7 @@ def v2_simulate_batch(request: V2BatchRequest):
                     scenario["task"], tool_name, tool_response_str,
                     request.failure_mode, session_id
                 )
-                adapter = GroqAdapter()
+                adapter = get_adapter(request.model.provider)
                 norm_resp, http_status, error = adapter.send(
                     norm_req, request.model.api_key, request.model.model_name
                 )
