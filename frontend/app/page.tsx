@@ -1,319 +1,191 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useRef, useEffect, useState } from "react";
 
-const FAILURE_MODES = [
-  { value: "none", label: "No Failure", description: "Control run -- clean tool response" },
-  { value: "timeout", label: "Timeout", description: "Tool takes 15s to respond" },
-  { value: "wrong_answer", label: "Wrong Answer", description: "Plausible but incorrect data" },
-  { value: "malformed_json", label: "Malformed JSON", description: "Broken response structure" },
-  { value: "silent_failure", label: "Silent Failure", description: "Null response with 200 OK" },
-];
-
-const SCENARIOS = [
-  { id: "C1", label: "847 x 23 (Calculator)" },
-  { id: "C2", label: "Compound Interest (Calculator)" },
-  { id: "C3", label: "Percentage: 340 of 1700 (Calculator)" },
-  { id: "S1", label: "Latest Python version (Search)" },
-  { id: "S2", label: "OpenAI CEO (Search)" },
-  { id: "S3", label: "LangChain version (Search)" },
-  { id: "D1", label: "User record ID 1042 (Database)" },
-  { id: "D2", label: "Product record ID 77 (Database)" },
-  { id: "W1", label: "Mumbai temperature (Weather)" },
-  { id: "W2", label: "London rain check (Weather)" },
-  { id: "SM1", label: "Summarize neural networks (Summarizer)" },
-  { id: "SM2", label: "Summarize product review (Summarizer)" },
-  { id: "CE1", label: "Run print(2**10) (Code)" },
-  { id: "CE2", label: "Run len('ToolMonkey') (Code)" },
-  { id: "CE3", label: "Run sum([1..5]) (Code)" },
-];
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-const PROVIDER_LABELS: Record<string, string> = {
-  groq: "Groq", openai: "OpenAI", anthropic: "Anthropic",
-  gemini: "Gemini", deepseek: "DeepSeek",
+const T = {
+  bg:     "#1e1714",
+  bgCard: "#2a1f1b",
+  border: "#4a3a35",
+  gold:   "#de9e48",
+  goldHov:"#e8ae5a",
+  text:   "#ffffff",
+  textMut:"#bfbfbf",
+  font:   `"Satoshi", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`,
 };
 
-const KEY_PLACEHOLDERS: Record<string, string> = {
-  groq: "gsk_...", openai: "sk-...", anthropic: "sk-ant-...",
-  gemini: "AIza...", deepseek: "sk-...",
-};
-
-interface ProviderConfig { models: string[]; default_model: string; }
-interface ModelState {
-  provider: string; apiKey: string; modelName: string;
-  keyStatus: null | "valid" | "invalid"; validating: boolean; error: string;
-}
-
-function defaultModel(providers: Record<string, ProviderConfig>, provider: string) {
-  return providers[provider]?.default_model || "";
-}
-
-function ModelCard({
-  label, state, providers, onChange, onValidate
-}: {
-  label: string;
-  state: ModelState;
-  providers: Record<string, ProviderConfig>;
-  onChange: (updates: Partial<ModelState>) => void;
-  onValidate: () => void;
-}) {
+function GradientBg() {
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded p-4 flex-1">
-      <h3 className="font-semibold text-gray-200 mb-4">{label}</h3>
-
-      <div className="mb-3">
-        <label className="block text-xs text-gray-400 mb-1">Provider</label>
-        <div className="grid grid-cols-3 gap-1">
-          {Object.keys(PROVIDER_LABELS).map((p) => (
-            <button
-              key={p}
-              onClick={() => onChange({
-                provider: p,
-                modelName: defaultModel(providers, p),
-                keyStatus: null,
-                apiKey: ""
-              })}
-              className={`py-1 rounded text-xs font-medium transition-colors ${
-                state.provider === p
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-800 border border-gray-600 text-gray-400 hover:border-gray-400"
-              }`}
-            >
-              {PROVIDER_LABELS[p]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mb-3">
-        <label className="block text-xs text-gray-400 mb-1">Model</label>
-        <select
-          value={state.modelName}
-          onChange={(e) => onChange({ modelName: e.target.value })}
-          className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-blue-500"
-        >
-          {(providers[state.provider]?.models || []).map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="mb-2">
-        <label className="block text-xs text-gray-400 mb-1">API Key</label>
-        <div className="flex gap-1">
-          <input
-            type="password"
-            value={state.apiKey}
-            onChange={(e) => onChange({ apiKey: e.target.value, keyStatus: null })}
-            placeholder={KEY_PLACEHOLDERS[state.provider] || "your-api-key"}
-            className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-blue-500"
-          />
-          <button
-            onClick={onValidate}
-            disabled={state.validating}
-            className="px-2 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-500 rounded text-xs disabled:opacity-50"
-          >
-            {state.validating ? "..." : "Validate"}
-          </button>
-        </div>
-        {state.keyStatus === "valid" && <p className="text-green-400 text-xs mt-1">Key valid</p>}
-        {state.keyStatus === "invalid" && <p className="text-red-400 text-xs mt-1">{state.error}</p>}
-      </div>
+    <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: "-20%", left: "-10%", width: "55%", height: "60%", background: "radial-gradient(ellipse at center, rgba(122,67,29,0.28) 0%, transparent 70%)", filter: "blur(60px)" }} />
+      <div style={{ position: "absolute", bottom: "-15%", right: "-10%", width: "55%", height: "55%", background: "radial-gradient(ellipse at center, rgba(222,158,72,0.15) 0%, transparent 70%)", filter: "blur(80px)" }} />
+      <div style={{ position: "absolute", top: "40%", left: "40%", width: "40%", height: "40%", background: "radial-gradient(ellipse at center, rgba(90,40,20,0.2) 0%, transparent 70%)", filter: "blur(60px)" }} />
     </div>
   );
 }
 
-export default function SetupPage() {
-  const router = useRouter();
-  const [providers, setProviders] = useState<Record<string, ProviderConfig>>({});
-  const [mode, setMode] = useState<"single" | "compare">("single");
-  const [scenarioId, setScenarioId] = useState("C1");
-  const [failureMode, setFailureMode] = useState("none");
-  const [corruptionPct, setCorruptionPct] = useState(0.15);
-  const [error, setError] = useState("");
-
-  const [modelA, setModelA] = useState<ModelState>({
-    provider: "groq", apiKey: "", modelName: "llama-3.3-70b-versatile",
-    keyStatus: null, validating: false, error: ""
-  });
-  const [modelB, setModelB] = useState<ModelState>({
-    provider: "openai", apiKey: "", modelName: "gpt-4o-mini",
-    keyStatus: null, validating: false, error: ""
-  });
-
+function GlowCard({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    fetch(`${API_URL}/v2/providers`)
-      .then((r) => r.json())
-      .then(setProviders)
-      .catch(() => {});
+    const el = ref.current;
+    if (!el) return;
+    function handleMove(e: MouseEvent) {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      el.style.setProperty("--mx", ((e.clientX - rect.left) / rect.width) * 100 + "%");
+      el.style.setProperty("--my", ((e.clientY - rect.top) / rect.height) * 100 + "%");
+      el.style.setProperty("--glow-opacity", "1");
+    }
+    function handleLeave() { if (el) el.style.setProperty("--glow-opacity", "0"); }
+    el.addEventListener("mousemove", handleMove);
+    el.addEventListener("mouseleave", handleLeave);
+    return () => { el.removeEventListener("mousemove", handleMove); el.removeEventListener("mouseleave", handleLeave); };
   }, []);
+  return (
+    <div ref={ref} style={{ position: "relative", background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", "--mx": "50%", "--my": "50%", "--glow-opacity": "0", ...style } as React.CSSProperties}>
+      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at var(--mx) var(--my), rgba(222,158,72,0.12) 0%, transparent 60%)", opacity: "var(--glow-opacity)" as any, transition: "opacity 0.3s ease", pointerEvents: "none", zIndex: 0 }} />
+      <div style={{ position: "absolute", inset: 0, borderRadius: 14, boxShadow: "inset 0 0 0 1px rgba(222,158,72,0.3)", opacity: "var(--glow-opacity)" as any, transition: "opacity 0.3s ease", pointerEvents: "none", zIndex: 0 }} />
+      <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
+    </div>
+  );
+}
 
-  async function validateModel(
-    state: ModelState,
-    setState: (updates: Partial<ModelState>) => void
-  ) {
-    if (!state.apiKey.trim()) { setState({ error: "Enter API key first", keyStatus: "invalid" }); return; }
-    setState({ validating: true, error: "", keyStatus: null });
-    try {
-      const res = await fetch(`${API_URL}/v2/validate-key`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: state.provider, api_key: state.apiKey, model_name: state.modelName }),
-      });
-      const data = await res.json();
-      setState({
-        keyStatus: data.valid ? "valid" : "invalid",
-        validating: false,
-        error: data.valid ? "" : (data.error || "Invalid key")
-      });
-    } catch {
-      setState({ keyStatus: "invalid", validating: false, error: "Could not reach backend" });
-    }
+function StepCard({ num, title, desc }: { num: string; title: string; desc: string }) {
+  return (
+    <GlowCard style={{ padding: "14px 14px 10px", position: "relative", overflow: "hidden", height: "100%" }}>
+      <span style={{ position: "absolute", bottom: -8, right: 6, fontSize: 48, fontWeight: 900, color: T.border, fontFamily: T.font, lineHeight: 1, userSelect: "none" as const, pointerEvents: "none" as const, opacity: 0.2, zIndex: 0 }}>{num}</span>
+      <p style={{ fontSize: 12, fontWeight: 700, color: T.gold, fontFamily: T.font, margin: "0 0 4px", position: "relative", zIndex: 1 }}>{num}</p>
+      <p style={{ fontSize: 12, fontWeight: 600, color: T.text, fontFamily: T.font, margin: "0 0 4px", position: "relative", zIndex: 1 }}>{title}</p>
+      <p style={{ fontSize: 11, color: T.textMut, fontFamily: T.font, margin: 0, lineHeight: 1.4, position: "relative", zIndex: 1 }}>{desc}</p>
+    </GlowCard>
+  );
+}
+
+function Arrow() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, width: 24 }}>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M2 8h12M9 4l4 4-4 4" stroke={T.border} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+function MascotImage({ size }: { size: number }) {
+  const [imgError, setImgError] = useState(false);
+  const [extIdx, setExtIdx] = useState(0);
+  const extensions = ["png", "jpg", "jpeg"];
+  function handleError() {
+    if (extIdx < extensions.length - 1) setExtIdx((i) => i + 1);
+    else setImgError(true);
   }
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", border: "2px solid rgba(222,158,72,0.3)", overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#2a1f1b" }}>
+      {imgError
+        ? <span style={{ fontSize: size * 0.3, fontWeight: 900, color: T.gold, fontFamily: T.font }}>TM</span>
+        : <img src={"/" + "mascot." + extensions[extIdx]} alt="ToolMonkey mascot" onError={handleError} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      }
+    </div>
+  );
+}
 
-  function run() {
-    setError("");
-    if (!modelA.apiKey.trim()) { setError("Enter Model A API key"); return; }
-    if (modelA.keyStatus !== "valid") { setError("Validate Model A key first"); return; }
-    if (mode === "compare") {
-      if (!modelB.apiKey.trim()) { setError("Enter Model B API key"); return; }
-      if (modelB.keyStatus !== "valid") { setError("Validate Model B key first"); return; }
-    }
-
-    const params = new URLSearchParams({
-      mode,
-      provider_a: modelA.provider,
-      api_key_a: modelA.apiKey,
-      model_name_a: modelA.modelName,
-      scenario_id: scenarioId,
-      failure_mode: failureMode,
-      corruption_pct: corruptionPct.toString(),
-    });
-
-    if (mode === "compare") {
-      params.set("provider_b", modelB.provider);
-      params.set("api_key_b", modelB.apiKey);
-      params.set("model_name_b", modelB.modelName);
-    }
-
-    router.push(`/results?${params.toString()}`);
-  }
+export default function LandingPage() {
+  const router = useRouter();
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-4xl mx-auto">
+    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, position: "relative", overflow: "hidden" }}>
+      <GradientBg />
+      <style>{`
+        @keyframes mascotGlow {
+          0%, 100% { box-shadow: 0 0 20px rgba(222,158,72,0.2), 0 0 40px rgba(222,158,72,0.08); }
+          50% { box-shadow: 0 0 40px rgba(222,158,72,0.4), 0 0 80px rgba(222,158,72,0.15); }
+        }
+      `}</style>
 
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-2xl">🐒</span>
-            <h1 className="text-3xl font-bold">ToolMonkey</h1>
-          </div>
-          <p className="text-gray-400">Test your model's reliability under tool failure conditions before it reaches production.</p>
-          <div className="mt-3 p-3 bg-gray-900 border border-gray-700 rounded text-sm text-gray-400">
-            API keys are used for this session only and discarded immediately after. Never stored or logged.
-          </div>
+      {/* Nav */}
+      <nav style={{ height: 48, display: "flex", alignItems: "center", padding: "0 24px", borderBottom: `1px solid ${T.border}`, background: "rgba(30,23,20,0.85)", backdropFilter: "blur(16px)", position: "sticky", top: 0, zIndex: 100 }}>
+        <div style={{ padding: "6px 14px", background: "rgba(222,158,72,0.08)", border: "1px solid rgba(222,158,72,0.25)", borderRadius: 8, boxShadow: "0 0 12px rgba(222,158,72,0.2), 0 0 24px rgba(222,158,72,0.08)", display: "inline-flex", alignItems: "center" }}>
+          <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-0.02em", fontFamily: T.font }}>
+            <span style={{ color: T.text }}>Tool</span>
+            <span style={{ color: T.gold }}>Monkey</span>
+          </span>
         </div>
+      </nav>
 
-        <div className="flex gap-2 mb-8">
+      {/* Body */}
+      <div style={{ height: "calc(100vh - 48px)", display: "flex", width: "100%", position: "relative", zIndex: 1 }}>
+
+        {/* LEFT — 60% */}
+        <div style={{ width: "60%", flexShrink: 0, padding: "32px 40px 32px 32px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+
+          <h1 style={{ fontSize: 68, fontWeight: 900, letterSpacing: "-0.04em", margin: "0 0 12px", lineHeight: 1, fontFamily: T.font }}>
+            <span style={{ color: T.text }}>Tool</span>
+            <span style={{ color: T.gold }}>Monkey</span>
+          </h1>
+
+          <h2 style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.02em", color: T.text, margin: "0 0 8px", lineHeight: 1.3, fontFamily: T.font }}>
+            Test before production breaks you.
+          </h2>
+
+          <p style={{ fontSize: 14, color: T.textMut, lineHeight: 1.6, margin: "0 0 20px", fontFamily: T.font, maxWidth: 480 }}>
+            Inject controlled failures into LLM tool-calling agents. Measure exactly how they break.
+          </p>
+
+          {/* Insight cards */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+            <GlowCard style={{ flex: 1, padding: "14px 16px" }}>
+              <p style={{ fontSize: 16, fontWeight: 900, color: T.gold, fontFamily: T.font, margin: "0 0 5px", letterSpacing: "-0.03em" }}>73%</p>
+              <p style={{ fontSize: 11, color: T.textMut, fontFamily: T.font, margin: 0, lineHeight: 1.5 }}>of AI agent failures in production go undetected before shipping.</p>
+            </GlowCard>
+            <GlowCard style={{ flex: 1, padding: "14px 16px" }}>
+              <p style={{ fontSize: 16, fontWeight: 900, color: T.gold, fontFamily: T.font, margin: "0 0 5px", letterSpacing: "-0.03em" }}>25%</p>
+              <p style={{ fontSize: 11, color: T.textMut, fontFamily: T.font, margin: 0, lineHeight: 1.5 }}>silent failure rate even when task completion shows 100%. Users get wrong answers with no warning.</p>
+            </GlowCard>
+          </div>
+
+          {/* How it works */}
+          <p style={{ fontSize: 10, fontWeight: 600, color: T.textMut, letterSpacing: "0.08em", textTransform: "uppercase" as const, fontFamily: T.font, margin: "0 0 8px" }}>How it works</p>
+          <div style={{ display: "flex", alignItems: "stretch", marginBottom: 24 }}>
+            <div style={{ flex: 1 }}><StepCard num="01" title="Choose model" desc="Pick provider, inject a failure mode" /></div>
+            <Arrow />
+            <div style={{ flex: 1 }}><StepCard num="02" title="Watch live" desc="Agent attempts the task in real time" /></div>
+            <Arrow />
+            <div style={{ flex: 1 }}><StepCard num="03" title="Get score" desc="Reliability score across 4 metrics" /></div>
+          </div>
+
+          {/* CTA */}
           <button
-            onClick={() => setMode("single")}
-            className={`flex-1 py-2 rounded text-sm font-medium transition-colors ${
-              mode === "single" ? "bg-blue-600 text-white" : "bg-gray-900 border border-gray-700 text-gray-400 hover:border-gray-500"
-            }`}
+            onClick={() => router.push("/setup")}
+            style={{ padding: "13px 40px", alignSelf: "flex-start", background: T.gold, border: "none", borderRadius: 980, color: "#1e1714", fontFamily: T.font, fontSize: 16, fontWeight: 700, letterSpacing: "-0.01em", cursor: "pointer", marginBottom: 24, boxShadow: "0 0 20px rgba(222,158,72,0.35), 0 0 40px rgba(222,158,72,0.12)", transition: "background 0.18s ease, transform 0.1s ease, box-shadow 0.18s ease" }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = T.goldHov; (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 0 32px rgba(222,158,72,0.5), 0 0 64px rgba(222,158,72,0.18)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = T.gold; (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 0 20px rgba(222,158,72,0.35), 0 0 40px rgba(222,158,72,0.12)"; }}
+            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
+            onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
-            Single Model Test
+            {"Let's Begin"}
           </button>
-          <button
-            onClick={() => setMode("compare")}
-            className={`flex-1 py-2 rounded text-sm font-medium transition-colors ${
-              mode === "compare" ? "bg-blue-600 text-white" : "bg-gray-900 border border-gray-700 text-gray-400 hover:border-gray-500"
-            }`}
-          >
-            Compare Two Models
-          </button>
-        </div>
 
-        <div className={`mb-8 ${mode === "compare" ? "flex gap-4" : ""}`}>
-          <ModelCard
-            label={mode === "compare" ? "Model A" : "Your Model"}
-            state={modelA}
-            providers={providers}
-            onChange={(u) => setModelA((prev) => ({ ...prev, ...u }))}
-            onValidate={() => validateModel(modelA, (u) => setModelA((prev) => ({ ...prev, ...u })))}
-          />
-          {mode === "compare" && (
-            <ModelCard
-              label="Model B"
-              state={modelB}
-              providers={providers}
-              onChange={(u) => setModelB((prev) => ({ ...prev, ...u }))}
-              onValidate={() => validateModel(modelB, (u) => setModelB((prev) => ({ ...prev, ...u })))}
-            />
-          )}
-        </div>
-
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-3 text-gray-200">Scenario</h2>
-          <select
-            value={scenarioId}
-            onChange={(e) => setScenarioId(e.target.value)}
-            className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-          >
-            {SCENARIOS.map((s) => (
-              <option key={s.id} value={s.id}>{s.id} -- {s.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-3 text-gray-200">Failure Mode</h2>
-          <div className="grid grid-cols-5 gap-2">
-            {FAILURE_MODES.map((fm) => (
-              <div
-                key={fm.value}
-                onClick={() => setFailureMode(fm.value)}
-                className={`p-2 rounded border cursor-pointer transition-colors text-center ${
-                  failureMode === fm.value
-                    ? "border-blue-500 bg-blue-950"
-                    : "border-gray-700 bg-gray-900 hover:border-gray-500"
-                }`}
-              >
-                <p className="font-medium text-xs">{fm.label}</p>
-                <p className="text-gray-400 text-xs mt-1 hidden sm:block">{fm.description}</p>
-              </div>
-            ))}
+          {/* Footer */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <p style={{ fontSize: 11, color: T.textMut, letterSpacing: "0.05em", textTransform: "uppercase" as const, fontWeight: 500, fontFamily: T.font, margin: 0 }}>Chaos Monkey for LLM agents</p>
+            <a href="https://www.linkedin.com/in/shubhsankalpdas/" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontFamily: T.font, textDecoration: "none", display: "block" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = "0.8"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = "1"; }}
+            >
+              <span style={{ color: T.text }}>Made by </span>
+              <span style={{ color: T.gold, textDecoration: "underline", textUnderlineOffset: "3px" }}>Shubh Sankalp Das</span>
+            </a>
           </div>
         </div>
 
-        {failureMode === "wrong_answer" && (
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold mb-2 text-gray-200">
-              Corruption Intensity: {Math.round(corruptionPct * 100)}%
-            </h2>
-            <input
-              type="range" min="0.05" max="0.50" step="0.05"
-              value={corruptionPct}
-              onChange={(e) => setCorruptionPct(parseFloat(e.target.value))}
-              className="w-full"
-            />
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
-              <span>5% (subtle)</span><span>50% (obvious)</span>
-            </div>
+        {/* RIGHT — 40% with 50/50 vertical split */}
+        <div style={{ flex: 1, position: "relative", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, width: "50%", height: "100%", background: T.bg }} />
+          <div style={{ position: "absolute", top: 0, right: 0, width: "50%", height: "100%", background: "#3d2a10" }} />
+          <div style={{ position: "relative", zIndex: 1, animation: "mascotGlow 3s ease-in-out infinite", borderRadius: "50%", border: "2px solid rgba(222,158,72,0.3)" }}>
+            <MascotImage size={500} />
           </div>
-        )}
-
-        {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
-
-        <button
-          onClick={run}
-          className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded font-semibold text-lg transition-colors"
-        >
-          {mode === "compare" ? "Run Comparison" : "Run Simulation"}
-        </button>
-
+        </div>
       </div>
     </div>
   );
